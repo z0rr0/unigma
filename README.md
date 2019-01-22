@@ -1,2 +1,3 @@
-# unigma
-Secure file sharing sevice
+# Unigma
+
+Secure file sharing service.

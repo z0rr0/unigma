@@ -1,0 +1,11 @@
+{
+  "db": "db.sqlite",
+  "host": "localhost",
+  "port": 18080,
+  "timeout": 30,
+  "secure": false,
+  "settings": {
+    "ttl": 604800,
+    "times": 1000
+  }
+}
