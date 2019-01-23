@@ -100,6 +100,8 @@ func main() {
 			code, err = web.Index(w, r, cfg)
 		case "/upload":
 			code, err = web.Upload(w, r, cfg)
+		case "/download":
+			code, err = web.Download(w, r, cfg)
 			//default:
 			//	code, err = web.Read(w, r, cfg)
 		}

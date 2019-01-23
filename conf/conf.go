@@ -132,6 +132,11 @@ func (c *Cfg) Close() error {
 	return c.Db.Close()
 }
 
+// Secret returns secret string.
+func (c *Cfg) Secret(p string) string {
+	return p + c.Salt
+}
+
 // New returns new configuration.
 func New(filename string, l *log.Logger) (*Cfg, error) {
 	fullPath, err := filepath.Abs(strings.Trim(filename, " "))

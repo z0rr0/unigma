@@ -33,7 +33,7 @@ func validateRange(value, field string, max int) (int, error) {
 	return n, nil
 }
 
-func validate(r *http.Request, cfg *conf.Cfg) (*db.Item, string, error) {
+func validateUpload(r *http.Request, cfg *conf.Cfg) (*db.Item, string, error) {
 	// TTL
 	value := r.PostFormValue("ttl")
 	if value == "" {
@@ -64,7 +64,23 @@ func validate(r *http.Request, cfg *conf.Cfg) (*db.Item, string, error) {
 		Created: now,
 		Expired: now.Add(time.Duration(ttl) * time.Second),
 	}
-	return item, password, nil
+	return item, cfg.Secret(password), nil
+}
+
+func validateDownload(r *http.Request, cfg *conf.Cfg) (*db.Item, []byte, error) {
+	password := r.PostFormValue("password")
+	if password == "" {
+		return nil, nil, errors.New("required password")
+	}
+	item := &db.Item{
+		Counter: 1,
+		Path:    cfg.StorageDir,
+	}
+	key, err := item.IsValidSecret(cfg.Secret(password))
+	if err != nil {
+		return nil, nil, err
+	}
+	return item, key, nil
 }
 
 // Index is a index page HTTP handler.
@@ -79,7 +95,7 @@ func Index(w io.Writer, _ *http.Request, cfg *conf.Cfg) (int, error) {
 
 // Upload gets incoming upload request and encrypted and save file to the storage.
 func Upload(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
-	item, pwd, err := validate(r, cfg)
+	item, secret, err := validateUpload(r, cfg)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
@@ -96,14 +112,27 @@ func Upload(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
 		}
 	}()
 	item.Name = h.Filename
-	err = item.Encrypt(f, cfg.Salt+pwd, cfg.ErrLogger)
+	err = item.Encrypt(f, secret, cfg.ErrLogger)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
 	return Index(w, r, cfg)
 }
 
-// download
-// fileName := "attachment; filename=\"export.csv\""
-// w.Header().Set("Content-disposition", fileName)
-// w.Header().Set("Content-Type", "text/csv")
+// Download returns a file.
+func Download(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
+	item, key, err := validateDownload(r, cfg)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	httpWriter, ok := w.(http.ResponseWriter)
+	if ok {
+		httpWriter.Header().Set("Content-disposition", fmt.Sprintf("attachment; filename=\"%v\"", item.Name))
+		httpWriter.Header().Set("Content-Type", item.ContentType())
+	}
+	err = item.Decrypt(w, key, cfg.ErrLogger)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return http.StatusOK, nil
+}

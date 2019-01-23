@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -38,6 +40,20 @@ type Item struct {
 	Expired time.Time
 }
 
+// ContentType returns string content-type for stored file.
+func (item *Item) ContentType() string {
+	var ext string
+	i := strings.LastIndex(item.Name, ".")
+	if i > -1 {
+		ext = item.Name[i:]
+	}
+	m := mime.TypeByExtension(ext)
+	if m == "" {
+		return "application/octet-stream"
+	}
+	return m
+}
+
 // genSalt generates unique random salt to decrease collisions.
 func (item *Item) genSalt() ([]byte, error) {
 	const attempts = 16
@@ -61,17 +77,15 @@ func (item *Item) genSalt() ([]byte, error) {
 	return nil, fmt.Errorf("can't generate unique salt after %v attempts", attempts)
 }
 
-// setHash calculates and sets has(secret+salt) hash.
-func (item *Item) setHash(secret string, salt []byte) {
+// Key calculates and returns secret key and its SHA512 hash.
+func (item *Item) Key(secret string, salt []byte) ([]byte, []byte) {
+	key := pbkdf2.Key([]byte(secret), salt, pbkdf2Iter, aesKeyLength, sha512.New)
 	h := sha512.New512_256()
-	b := []byte(secret)
-	b = append(b, salt...)
-	// to check secrete without decryption
-	item.Hash = hex.EncodeToString(h.Sum(b))
+	return key, h.Sum(append(key, salt...))
 }
 
-// checkHash compares hash(secret+salt) with item's value.
-func (item *Item) checkHash(secret string) ([]byte, error) {
+// IsValidSecret checks the secret.
+func (item *Item) IsValidSecret(secret string) ([]byte, error) {
 	salt, err := hex.DecodeString(item.Salt)
 	if err != nil {
 		return nil, err
@@ -80,14 +94,11 @@ func (item *Item) checkHash(secret string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	h := sha512.New512_256()
-	b := []byte(secret)
-	b = append(b, salt...)
-
-	if !hmac.Equal(h.Sum(b), hash) {
+	key, keyHash := item.Key(secret, salt)
+	if !hmac.Equal(hash, keyHash) {
 		return nil, errors.New("failed secret")
 	}
-	return salt, nil
+	return key, nil
 }
 
 // Encrypt encrypts source file and fills the item by result.
@@ -96,9 +107,8 @@ func (item *Item) Encrypt(inFile io.Reader, secret string, l *log.Logger) error 
 	if err != nil {
 		return err
 	}
-	item.setHash(secret, salt)
-
-	key := pbkdf2.Key([]byte(secret), salt, pbkdf2Iter, aesKeyLength, sha512.New)
+	key, keyHash := item.Key(secret, salt)
+	item.Hash = hex.EncodeToString(keyHash)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return err
@@ -125,11 +135,7 @@ func (item *Item) Encrypt(inFile io.Reader, secret string, l *log.Logger) error 
 }
 
 // Decrypt decrypts item related file and writes result to w.
-func (item *Item) Decrypt(w io.Writer, secret string, l *log.Logger) error {
-	salt, err := item.checkHash(secret)
-	if err != nil {
-		return err
-	}
+func (item *Item) Decrypt(w io.Writer, key []byte, l *log.Logger) error {
 	inFile, err := os.Open(item.Path)
 	if err != nil {
 		return err
@@ -139,7 +145,6 @@ func (item *Item) Decrypt(w io.Writer, secret string, l *log.Logger) error {
 			l.Printf("close in-encypted file error: %v", err)
 		}
 	}()
-	key := pbkdf2.Key([]byte(secret), salt, pbkdf2Iter, aesKeyLength, sha512.New)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return err
