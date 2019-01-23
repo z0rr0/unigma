@@ -5,6 +5,7 @@
   "port": 18090,
   "timeout": 30,
   "secure": false,
+  "salt": "abc",
   "settings": {
     "ttl": 604800,
     "times": 1000,

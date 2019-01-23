@@ -63,7 +63,7 @@ func main() {
 		fmt.Println(versionInfo)
 		return
 	}
-	cfg, err := conf.New(*config)
+	cfg, err := conf.New(*config, loggerError)
 	if err != nil {
 		panic(err)
 	}
@@ -98,6 +98,8 @@ func main() {
 			code, err = http.StatusOK, getVersion(w, cfg)
 		case "/":
 			code, err = web.Index(w, r, cfg)
+		case "/upload":
+			code, err = web.Save(w, r, cfg)
 			//default:
 			//	code, err = web.Read(w, r, cfg)
 		}

@@ -16,7 +16,7 @@ const (
 	</head>
 	<body>
 		<h1>Unigma</h1>
-		<form method="POST" action="/upload/" enctype="multipart/form-data">
+		<form method="POST" action="/upload" enctype="multipart/form-data">
 			File <small>(max {{.MaxSize}} Mb)</small>: 
 			<input type="file" name="file" required>
 			TTL: <select name="ttl" required>
@@ -32,6 +32,20 @@ const (
 		<p>
 			<small><a href="https://github.com/z0rr0/unigma" title="github.com/z0rr0/enigma">github.com</a></small>
 		</p>
+	</body>
+</html>
+`
+	// Result is HTML template for link sharing.
+	Result = `
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset=utf-8>
+		<title>Unigma</title>
+	</head>
+	<body>
+		<h1><a href="/" title="Enigma">Unigma</a></h1>
+		<strong><a href="{{ .URL }}">{{ .URL }}</a></strong>
 	</body>
 </html>
 `

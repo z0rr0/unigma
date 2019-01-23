@@ -13,6 +13,7 @@ import (
 	"github.com/z0rr0/unigma/page"
 	"html/template"
 	"io/ioutil"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -37,10 +38,12 @@ type Cfg struct {
 	Port       uint     `json:"port"`
 	Timeout    int64    `json:"timeout"`
 	Secure     bool     `json:"secure"`
+	Salt       string   `json:"salt"`
 	Settings   settings `json:"settings"`
 	StorageDir string
 	Db         *sql.DB
 	Templates  map[string]*template.Template
+	ErrLogger  *log.Logger
 	timeout    time.Duration
 }
 
@@ -94,7 +97,7 @@ func (c *Cfg) loadTemplates() error {
 	pages := map[string]string{
 		"index": page.Index,
 		//"error":   page.Error,
-		//"result":  page.Result,
+		"result": page.Result,
 		//"read":    page.Read,
 		//"content": page.Content,
 	}
@@ -130,7 +133,7 @@ func (c *Cfg) Close() error {
 }
 
 // New returns new configuration.
-func New(filename string) (*Cfg, error) {
+func New(filename string, l *log.Logger) (*Cfg, error) {
 	fullPath, err := filepath.Abs(strings.Trim(filename, " "))
 	if err != nil {
 		return nil, err
@@ -157,5 +160,6 @@ func New(filename string) (*Cfg, error) {
 		return nil, err
 	}
 	c.Db = db
+	c.ErrLogger = l
 	return c, nil
 }
