@@ -10,34 +10,59 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/z0rr0/unigma/page"
+	"html/template"
 	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // SQLite3 driver package
 )
 
 // settings is app settings.
 type settings struct {
 	TTL   int `json:"ttl"`
 	Times int `json:"times"`
+	Size  int `json:"size"`
 }
 
 // Cfg is configuration settings.
 type Cfg struct {
-	DbSource string   `json:"db"`
-	Host     string   `json:"host"`
-	Port     uint     `json:"port"`
-	Timeout  int64    `json:"timeout"`
-	Secure   bool     `json:"secure"`
-	Settings settings `json:"settings"`
-	Db       *sql.DB
+	DbSource   string   `json:"db"`
+	Storage    string   `json:"storage"`
+	Host       string   `json:"host"`
+	Port       uint     `json:"port"`
+	Timeout    int64    `json:"timeout"`
+	Secure     bool     `json:"secure"`
+	Settings   settings `json:"settings"`
+	StorageDir string
+	Db         *sql.DB
+	Templates  map[string]*template.Template
+	timeout    time.Duration
 }
 
 // isValid checks the settings are valid.
 func (c *Cfg) isValid() error {
+	fullPath, err := filepath.Abs(strings.Trim(c.Storage, " "))
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return errors.New("storage is not a directory")
+	}
+	mode := uint(info.Mode().Perm())
+	if mode&uint(0600) != 0600 {
+		return errors.New("storage dir is not writable or readable")
+	}
+	c.StorageDir = fullPath
+
 	if c.Timeout < 1 {
 		return errors.New("invalid timeout value")
 	}
@@ -50,12 +75,53 @@ func (c *Cfg) isValid() error {
 	if c.Settings.Times < 1 {
 		return errors.New("times setting should be positive")
 	}
+	if c.Settings.Size < 1 {
+		return errors.New("size setting should be positive")
+	}
+	err = c.loadTemplates()
+	if err != nil {
+		return err
+	}
+	c.timeout = time.Duration(c.Timeout) * time.Second
+	return nil
+}
+
+// loadTemplates loads HTML templates to memory.
+func (c *Cfg) loadTemplates() error {
+	if len(c.Templates) > 0 {
+		return errors.New("templates are already loaded")
+	}
+	pages := map[string]string{
+		"index": page.Index,
+		//"error":   page.Error,
+		//"result":  page.Result,
+		//"read":    page.Read,
+		//"content": page.Content,
+	}
+	c.Templates = make(map[string]*template.Template, len(pages))
+	for name, content := range pages {
+		tpl, err := template.New(name).Parse(content)
+		if err != nil {
+			return err
+		}
+		c.Templates[name] = tpl
+	}
 	return nil
 }
 
 // Addr returns service's net address.
 func (c *Cfg) Addr() string {
 	return net.JoinHostPort(c.Host, fmt.Sprint(c.Port))
+}
+
+// HandleTimeout is service timeout.
+func (c *Cfg) HandleTimeout() time.Duration {
+	return c.timeout
+}
+
+// MaxFileSize return max file size.
+func (c *Cfg) MaxFileSize() int {
+	return c.Settings.Size << 20
 }
 
 // Close frees resources.
