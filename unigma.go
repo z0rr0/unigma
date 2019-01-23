@@ -99,7 +99,7 @@ func main() {
 		case "/":
 			code, err = web.Index(w, r, cfg)
 		case "/upload":
-			code, err = web.Save(w, r, cfg)
+			code, err = web.Upload(w, r, cfg)
 			//default:
 			//	code, err = web.Read(w, r, cfg)
 		}

@@ -77,8 +77,8 @@ func Index(w io.Writer, _ *http.Request, cfg *conf.Cfg) (int, error) {
 	return http.StatusOK, nil
 }
 
-// Save gets incoming upload request and encrypted and save file to the storage.
-func Save(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
+// Upload gets incoming upload request and encrypted and save file to the storage.
+func Upload(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
 	item, pwd, err := validate(r, cfg)
 	if err != nil {
 		return http.StatusInternalServerError, err
@@ -87,7 +87,6 @@ func Save(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
-	fmt.Println("xaz", f, h)
 	defer func() {
 		if err := r.Body.Close(); err != nil {
 			cfg.ErrLogger.Printf("close body: %v", err)
@@ -97,10 +96,14 @@ func Save(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
 		}
 	}()
 	item.Name = h.Filename
-	err = db.Encrypt(f, item, cfg.Salt+pwd, cfg.ErrLogger)
+	err = item.Encrypt(f, cfg.Salt+pwd, cfg.ErrLogger)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
-	fmt.Println("xaz", item)
 	return Index(w, r, cfg)
 }
+
+// download
+// fileName := "attachment; filename=\"export.csv\""
+// w.Header().Set("Content-disposition", fileName)
+// w.Header().Set("Content-Type", "text/csv")
