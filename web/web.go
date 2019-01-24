@@ -112,7 +112,6 @@ func Error(w io.Writer, cfg *conf.Cfg, code int, msg string, tplName string) int
 	}
 	tpl := cfg.Templates[tplName]
 	err := tpl.Execute(w, &IndexData{Err: title, Msg: msg})
-	fmt.Println("xaz er", tplName, title, msg, err)
 	if err != nil {
 		cfg.ErrLogger.Printf("error-template '%v' execute failed: %v\n", tplName, err)
 		return http.StatusInternalServerError
@@ -177,6 +176,14 @@ func readFile(w io.Writer, r *http.Request, item *db.Item, cfg *conf.Cfg) (int, 
 			fmt.Sprintf("attachment; filename=\"%v\"", item.Name),
 		)
 		httpWriter.Header().Set("Content-Type", item.ContentType())
+	}
+	// file exists and secret is valid, so decrement counter
+	ok, err = item.Decrement(cfg.Db)
+	if err != nil {
+		return Error(w, cfg, http.StatusInternalServerError, "", "error"), err
+	}
+	if !ok {
+		return Error(w, cfg, http.StatusNotFound, "", ""), nil
 	}
 	err = item.Decrypt(w, key, cfg.ErrLogger)
 	if err != nil {

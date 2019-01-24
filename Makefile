@@ -55,7 +55,7 @@ start: install
 	@echo "  >  $(PROJECTNAME)"
 	@-$(BIN)/$(PROJECTNAME) -config config.example.json & echo $$! > $(PID)
 	@-cat $(PID)
-	@-sensible-browser $(WEBDEBUG)
+#	@-sensible-browser $(WEBDEBUG)
 
 stop:
 	@-touch $(PID)

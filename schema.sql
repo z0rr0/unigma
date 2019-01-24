@@ -9,4 +9,4 @@ CREATE TABLE IF NOT EXISTS `storage` (
   `expired` DATETIME NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS `hash` ON `storage` (`hash`);
-CREATE INDEX IF NOT EXISTS `expired` ON `storage` (`expired`);
+CREATE INDEX IF NOT EXISTS `expired` ON `storage` (`expired`, `counter`);

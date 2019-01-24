@@ -195,7 +195,7 @@ func (item *Item) Save(db *sql.DB) error {
 
 // Read reads an item by its hash from database.
 func Read(db *sql.DB, hash string) (*Item, error) {
-	stmt, err := db.Prepare("SELECT `id`, `name`, `path`, `hash`, `salt`, `counter`, `created`, `expired` FROM `storage` WHERE hash=?;")
+	stmt, err := db.Prepare("SELECT `id`, `name`, `path`, `hash`, `salt`, `counter`, `created`, `expired` FROM `storage` WHERE `counter`>0 AND `hash`=?;")
 	if err != nil {
 		return nil, err
 	}
@@ -210,12 +210,35 @@ func Read(db *sql.DB, hash string) (*Item, error) {
 		&item.Created,
 		&item.Expired,
 	)
-	// TODO: stmt.Close()?
 	if err == sql.ErrNoRows {
 		return item, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	err = stmt.Close()
+	if err != nil {
+		return nil, err
+	}
 	return item, nil
+}
+
+// Save saves the item to database.
+func (item *Item) Decrement(db *sql.DB) (bool, error) {
+	stmt, err := db.Prepare("UPDATE `storage` SET `counter`=`counter`-1 WHERE `counter`>0 AND `id`=?;")
+	if err != nil {
+		return false, err
+	}
+	_, err = stmt.Exec(item.ID)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	err = stmt.Close()
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
