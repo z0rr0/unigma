@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS `storage` (
   `name` TEXT,
   `path` TEXT,
   `counter` INTEGER DEFAULT 1,
-  `hash` VARCHAR(1024) NOT NULL,
+  `hash` VARCHAR(64) NOT NULL,
+  `salt` VARCHAR(128) NOT NULL,
   `created` DATETIME NOT NULL,
   `expired` DATETIME NOT NULL
 );

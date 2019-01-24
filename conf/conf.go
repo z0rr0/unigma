@@ -95,11 +95,10 @@ func (c *Cfg) loadTemplates() error {
 		return errors.New("templates are already loaded")
 	}
 	pages := map[string]string{
-		"index": page.Index,
-		//"error":   page.Error,
+		"index":  page.Index,
+		"error":  page.Error,
 		"result": page.Result,
-		//"read":    page.Read,
-		//"content": page.Content,
+		"read":   page.Read,
 	}
 	c.Templates = make(map[string]*template.Template, len(pages))
 	for name, content := range pages {
