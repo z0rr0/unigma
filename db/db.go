@@ -190,7 +190,7 @@ func (item *Item) Save(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	return nil
+	return stmt.Close()
 }
 
 // Read reads an item by its hash from database.
@@ -210,6 +210,7 @@ func Read(db *sql.DB, hash string) (*Item, error) {
 		&item.Created,
 		&item.Expired,
 	)
+	// TODO: stmt.Close()?
 	if err == sql.ErrNoRows {
 		return item, nil
 	}
