@@ -108,7 +108,8 @@ func main() {
 			loggerError.Println(err)
 		}
 	})
-	go db.GCMonitor(cfg.Ch, cfg.Db, loggerInfo, loggerError, time.Duration(cfg.GCPeriod)*time.Second)
+	monitorClosed := make(chan struct{})
+	go db.GCMonitor(cfg.Ch, monitorClosed, cfg.Db, loggerInfo, loggerError, time.Duration(cfg.GCPeriod)*time.Second)
 
 	idleConnsClosed := make(chan struct{})
 	go func() {
@@ -120,11 +121,13 @@ func main() {
 			loggerInfo.Printf("HTTP server Shutdown: %v", err)
 		}
 		close(idleConnsClosed)
+		close(monitorClosed)
 	}()
 
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		loggerInfo.Printf("HTTP server ListenAndServe: %v", err)
 	}
 	<-idleConnsClosed
+	<-monitorClosed
 	loggerInfo.Println("stopped")
 }

@@ -66,14 +66,6 @@ func (item *Item) FullPath() string {
 	return filepath.Join(item.Path, item.Hash)
 }
 
-// Key calculates and returns secret key and its SHA512 hash.
-func Key(secret string, salt []byte) ([]byte, []byte) {
-	key := pbkdf2.Key([]byte(secret), salt, pbkdf2Iter, aesKeyLength, sha3.New512)
-	b := make([]byte, hashLength)
-	sha3.ShakeSum256(b, append(key, salt...))
-	return key, b
-}
-
 // IsValidSecret checks the secret.
 func (item *Item) IsValidSecret(secret string) ([]byte, error) {
 	salt, err := hex.DecodeString(item.Salt)
@@ -91,6 +83,49 @@ func (item *Item) IsValidSecret(secret string) ([]byte, error) {
 	return key, nil
 }
 
+func (item *Item) encryptName(key []byte) error {
+	if item.Name == "" {
+		return errors.New("encrypt empty name")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil
+	}
+	plainText := []byte(item.Name)
+	cipherText := make([]byte, aes.BlockSize+len(plainText))
+	iv := cipherText[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return errors.New("iv random generation error")
+	}
+	stream := cipher.NewCFBEncrypter(block, iv)
+	stream.XORKeyStream(cipherText[aes.BlockSize:], plainText)
+	item.Name = hex.EncodeToString(cipherText)
+	return nil
+}
+
+func (item *Item) decryptName(key []byte) error {
+	if item.Name == "" {
+		return errors.New("decrypt empty name")
+	}
+	cipherText, err := hex.DecodeString(item.Name)
+	if err != nil {
+		return err
+	}
+	if len(cipherText) < aes.BlockSize {
+		return errors.New("invalid cipher block length")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return errors.New("new cipher creation")
+	}
+	iv := cipherText[:aes.BlockSize]
+	cipherText = cipherText[aes.BlockSize:]
+	stream := cipher.NewCFBDecrypter(block, iv)
+	stream.XORKeyStream(cipherText, cipherText)
+	item.Name = string(cipherText)
+	return nil
+}
+
 // Encrypt encrypts source file and fills the item by result.
 func (item *Item) Encrypt(inFile io.Reader, secret string, l *log.Logger) error {
 	salt := make([]byte, saltSize)
@@ -99,8 +134,12 @@ func (item *Item) Encrypt(inFile io.Reader, secret string, l *log.Logger) error 
 		return err
 	}
 	key, keyHash := Key(secret, salt)
+	err = item.encryptName(key)
+	if err != nil {
+		return err
+	}
 	item.Hash = hex.EncodeToString(keyHash)
-	// check file exists
+	// it is to be called after encryptName
 	fullPath := item.FullPath()
 	if item.IsFileExists() {
 		return fmt.Errorf("file %v already exists", fullPath)
@@ -132,6 +171,10 @@ func (item *Item) Encrypt(inFile io.Reader, secret string, l *log.Logger) error 
 
 // Decrypt decrypts item related file and writes result to w.
 func (item *Item) Decrypt(w io.Writer, key []byte, l *log.Logger) error {
+	err := item.decryptName(key)
+	if err != nil {
+		return err
+	}
 	fileName := filepath.Join(item.Path, item.Hash)
 	inFile, err := os.Open(fileName)
 	if err != nil {
@@ -145,6 +188,14 @@ func (item *Item) Decrypt(w io.Writer, key []byte, l *log.Logger) error {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return err
+	}
+	httpWriter, ok := w.(http.ResponseWriter)
+	if ok {
+		httpWriter.Header().Set(
+			"Content-disposition",
+			fmt.Sprintf("attachment; filename=\"%v\"", item.Name),
+		)
+		httpWriter.Header().Set("Content-Type", item.ContentType())
 	}
 	// if the key is unique for each cipher-text, then it's ok to use a zero IV.
 	var iv [aes.BlockSize]byte
@@ -217,7 +268,23 @@ func (item *Item) Decrement(db *sql.DB) (bool, error) {
 
 // Delete removes items from database and related file from file system.
 func (item *Item) Delete(db *sql.DB, le *log.Logger) error {
-	stmt, err := db.Prepare("DELETE FROM `storage` WHERE `id`=?;")
+	var err error
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			if e := tx.Rollback(); e != nil {
+				le.Printf("tx rollback error: %v\n", e)
+			}
+		} else {
+			if e := tx.Commit(); e != nil {
+				le.Printf("tx commit error: %v\n", e)
+			}
+		}
+	}()
+	stmt, err := tx.Prepare("DELETE FROM `storage` WHERE `id`=?;")
 	if err != nil {
 		return fmt.Errorf("failed prepare item delete by id: %v", err)
 	}
@@ -230,7 +297,16 @@ func (item *Item) Delete(db *sql.DB, le *log.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed item delete by id: %v", err)
 	}
-	return os.Remove(item.FullPath())
+	err = os.Remove(item.FullPath())
+	return err
+}
+
+// Key calculates and returns secret key and its SHA512 hash.
+func Key(secret string, salt []byte) ([]byte, []byte) {
+	key := pbkdf2.Key([]byte(secret), salt, pbkdf2Iter, aesKeyLength, sha3.New512)
+	b := make([]byte, hashLength)
+	sha3.ShakeSum256(b, append(key, salt...))
+	return key, b
 }
 
 // Read reads an item by its hash from database.
@@ -267,17 +343,30 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
 	var (
 		paths []string
 		ids   []string
+		err   error
 	)
 	tx, err := db.Begin()
 	if err != nil {
 		return 0, err
 	}
+	defer func() {
+		if err != nil {
+			if e := tx.Rollback(); e != nil {
+				le.Printf("tx rollback error: %v\n", e)
+			}
+		} else {
+			if e := tx.Commit(); e != nil {
+				le.Printf("tx commit error: %v\n", e)
+			}
+		}
+	}()
 	stmt, err := tx.Prepare("SELECT `id`, `path`, `hash` FROM `storage` WHERE `expired`<?;")
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return 0, tx.Commit()
+			err = nil // to do tx commit
+			return 0, err
 		}
-		return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
+		return 0, err
 	}
 	defer func() {
 		if err := stmt.Close(); err != nil {
@@ -289,25 +378,21 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
 	for rows.Next() {
 		err = rows.Scan(&item.ID, &item.Path, &item.Hash)
 		if err != nil {
-			return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
+			return 0, err
 		}
 		paths = append(paths, item.FullPath())
 		ids = append(ids, strconv.Itoa(item.ID))
 	}
 	err = rows.Close()
 	if err != nil {
-		return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
+		return 0, err
 	}
 	// delete items from db
 	stmt, err = tx.Prepare("DELETE FROM `storage` WHERE `id` IN (?);")
 	if err != nil {
-		return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
+		return 0, err
 	}
 	_, err = stmt.Exec(strings.Join(ids, ","))
-	if err != nil {
-		return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
-	}
-	err = tx.Commit()
 	if err != nil {
 		return 0, err
 	}
@@ -321,7 +406,7 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
 }
 
 // GCMonitor is garbage collection monitoring to delete expired by date or counter items.
-func GCMonitor(ch <-chan *Item, db *sql.DB, li, le *log.Logger, period time.Duration) {
+func GCMonitor(ch <-chan *Item, closed chan struct{}, db *sql.DB, li, le *log.Logger, period time.Duration) {
 	tc := time.Tick(period)
 	li.Printf("GC monitor is running, perid=%v\n", period)
 	for {
@@ -340,6 +425,9 @@ func GCMonitor(ch <-chan *Item, db *sql.DB, li, le *log.Logger, period time.Dura
 					li.Printf("deleted %v expired items\n", n)
 				}
 			}
+		case <-closed:
+			li.Println("gc monitor stopped")
+			return
 		}
 	}
 }

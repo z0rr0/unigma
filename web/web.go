@@ -169,16 +169,8 @@ func readFile(w io.Writer, r *http.Request, item *db.Item, cfg *conf.Cfg) (int, 
 	if err != nil {
 		return Error(w, cfg, http.StatusBadRequest, err.Error(), "read"), err
 	}
-	httpWriter, ok := w.(http.ResponseWriter)
-	if ok {
-		httpWriter.Header().Set(
-			"Content-disposition",
-			fmt.Sprintf("attachment; filename=\"%v\"", item.Name),
-		)
-		httpWriter.Header().Set("Content-Type", item.ContentType())
-	}
 	// file exists and secret is valid, so decrement counter
-	ok, err = item.Decrement(cfg.Db)
+	ok, err := item.Decrement(cfg.Db)
 	if err != nil {
 		return Error(w, cfg, http.StatusInternalServerError, "", "error"), err
 	}
