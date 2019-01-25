@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"golang.org/x/crypto/sha3"
 	"io"
 	"log"
 	"mime"
@@ -17,15 +16,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
+	"golang.org/x/crypto/sha3"
 )
 
 const (
 	// saltSize is random salt, also used for storage file name
-	saltSize = 64
+	saltSize = 128
 	// pbkdf2Iter is number of pbkdf2 iterations
 	pbkdf2Iter = 4096
 	// key length for AES-256
@@ -182,15 +183,54 @@ func (item *Item) IsFileExists() bool {
 
 // Save saves the item to database.
 func (item *Item) Save(db *sql.DB) error {
-	stmt, err := db.Prepare("INSERT INTO `storage` (`name`, `path`, `hash`, `salt`, `counter`, `created`, `expired`) values (?, ?, ?, ?, ?, ?, ?);")
+	stmt, err := db.Prepare("INSERT INTO `storage` (`name`, `path`, `hash`, `salt`, `counter`, `created`, `updated`, `expired`) values (?, ?, ?, ?, ?, ?, ?, ?);")
 	if err != nil {
 		return err
 	}
-	_, err = stmt.Exec(item.Name, item.Path, item.Hash, item.Salt, item.Counter, item.Created, item.Expired)
+	_, err = stmt.Exec(item.Name, item.Path, item.Hash, item.Salt, item.Counter, item.Created, item.Created, item.Expired)
 	if err != nil {
 		return err
 	}
 	return stmt.Close()
+}
+
+// Decrement updates items' counter.
+func (item *Item) Decrement(db *sql.DB) (bool, error) {
+	stmt, err := db.Prepare("UPDATE `storage` SET `counter`=`counter`-1, `updated`=? WHERE `counter`>0 AND `id`=?;")
+	if err != nil {
+		return false, err
+	}
+	_, err = stmt.Exec(time.Now().UTC(), item.ID)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	err = stmt.Close()
+	if err != nil {
+		return false, err
+	}
+	item.Counter--
+	return true, nil
+}
+
+// Delete removes items from database and related file from file system.
+func (item *Item) Delete(db *sql.DB, le *log.Logger) error {
+	stmt, err := db.Prepare("DELETE FROM `storage` WHERE `id`=?;")
+	if err != nil {
+		return fmt.Errorf("failed prepare item delete by id: %v", err)
+	}
+	defer func() {
+		if err := stmt.Close(); err != nil {
+			le.Printf("failed close stmt: %v\n", err)
+		}
+	}()
+	_, err = stmt.Exec(item.ID)
+	if err != nil {
+		return fmt.Errorf("failed item delete by id: %v", err)
+	}
+	return os.Remove(item.FullPath())
 }
 
 // Read reads an item by its hash from database.
@@ -223,22 +263,83 @@ func Read(db *sql.DB, hash string) (*Item, error) {
 	return item, nil
 }
 
-// Save saves the item to database.
-func (item *Item) Decrement(db *sql.DB) (bool, error) {
-	stmt, err := db.Prepare("UPDATE `storage` SET `counter`=`counter`-1 WHERE `counter`>0 AND `id`=?;")
+func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
+	var (
+		paths []string
+		ids   []string
+	)
+	tx, err := db.Begin()
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	_, err = stmt.Exec(item.ID)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
+	stmt, err := tx.Prepare("SELECT `id`, `path`, `hash` FROM `storage` WHERE `expired`<?;")
 	if err != nil {
-		return false, err
+		if err == sql.ErrNoRows {
+			return 0, tx.Commit()
+		}
+		return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
 	}
-	err = stmt.Close()
+	defer func() {
+		if err := stmt.Close(); err != nil {
+			le.Printf("failed close stmt: %v\n", err)
+		}
+	}()
+	rows, err := stmt.Query(time.Now().UTC())
+	item := &Item{} // use only one item to collect paths
+	for rows.Next() {
+		err = rows.Scan(&item.ID, &item.Path, &item.Hash)
+		if err != nil {
+			return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
+		}
+		paths = append(paths, item.FullPath())
+		ids = append(ids, strconv.Itoa(item.ID))
+	}
+	err = rows.Close()
 	if err != nil {
-		return false, err
+		return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
 	}
-	return true, nil
+	// delete items from db
+	stmt, err = tx.Prepare("DELETE FROM `storage` WHERE `id` IN (?);")
+	if err != nil {
+		return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
+	}
+	_, err = stmt.Exec(strings.Join(ids, ","))
+	if err != nil {
+		return 0, fmt.Errorf("%v, commit err=%v", err, tx.Rollback())
+	}
+	err = tx.Commit()
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range paths {
+		err = os.RemoveAll(p)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return len(paths), nil
+}
+
+// GCMonitor is garbage collection monitoring to delete expired by date or counter items.
+func GCMonitor(ch <-chan *Item, db *sql.DB, li, le *log.Logger, period time.Duration) {
+	tc := time.Tick(period)
+	li.Printf("GC monitor is running, perid=%v\n", period)
+	for {
+		select {
+		case item := <-ch:
+			if err := item.Delete(db, le); err != nil {
+				le.Println(err)
+			} else {
+				li.Printf("deleted item=%v\n", item.ID)
+			}
+		case <-tc:
+			if n, err := deleteByDate(db, le); err != nil {
+				le.Println(err)
+			} else {
+				if n > 0 {
+					li.Printf("deleted %v expired items\n", n)
+				}
+			}
+		}
+	}
 }

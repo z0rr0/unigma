@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/z0rr0/unigma/page"
 	"html/template"
 	"io/ioutil"
 	"log"
@@ -21,6 +20,8 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 driver package
+	"github.com/z0rr0/unigma/db"
+	"github.com/z0rr0/unigma/page"
 )
 
 // settings is app settings.
@@ -39,12 +40,14 @@ type Cfg struct {
 	Timeout    int64    `json:"timeout"`
 	Secure     bool     `json:"secure"`
 	Salt       string   `json:"salt"`
+	GCPeriod   int64    `json:"gc_period"`
 	Settings   settings `json:"settings"`
 	StorageDir string
 	Db         *sql.DB
 	Templates  map[string]*template.Template
 	ErrLogger  *log.Logger
 	timeout    time.Duration
+	Ch         chan *db.Item
 }
 
 // isValid checks the settings are valid.
@@ -81,11 +84,15 @@ func (c *Cfg) isValid() error {
 	if c.Settings.Size < 1 {
 		return errors.New("size setting should be positive")
 	}
+	if c.GCPeriod < 1 {
+		return errors.New("gc_period should be positive")
+	}
 	err = c.loadTemplates()
 	if err != nil {
 		return err
 	}
 	c.timeout = time.Duration(c.Timeout) * time.Second
+	c.Ch = make(chan *db.Item, 1)
 	return nil
 }
 
@@ -128,6 +135,7 @@ func (c *Cfg) MaxFileSize() int {
 
 // Close frees resources.
 func (c *Cfg) Close() error {
+	close(c.Ch)
 	return c.Db.Close()
 }
 

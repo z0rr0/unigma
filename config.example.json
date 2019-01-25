@@ -6,6 +6,7 @@
   "timeout": 30,
   "secure": false,
   "salt": "abc",
+  "gc_period": 15,
   "settings": {
     "ttl": 604800,
     "times": 1000,

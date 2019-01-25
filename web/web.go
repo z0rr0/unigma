@@ -189,6 +189,9 @@ func readFile(w io.Writer, r *http.Request, item *db.Item, cfg *conf.Cfg) (int, 
 	if err != nil {
 		return Error(w, cfg, http.StatusInternalServerError, "", "error"), err
 	}
+	if item.Counter < 1 {
+		cfg.Ch <- item
+	}
 	return http.StatusOK, nil
 }
 

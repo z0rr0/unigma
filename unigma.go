@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/z0rr0/unigma/conf"
+	"github.com/z0rr0/unigma/db"
 	"github.com/z0rr0/unigma/web"
 	"log"
 	"net/http"
@@ -107,6 +108,7 @@ func main() {
 			loggerError.Println(err)
 		}
 	})
+	go db.GCMonitor(cfg.Ch, cfg.Db, loggerInfo, loggerError, time.Duration(cfg.GCPeriod)*time.Second)
 
 	idleConnsClosed := make(chan struct{})
 	go func() {
