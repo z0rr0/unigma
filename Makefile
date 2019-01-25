@@ -8,7 +8,10 @@ SOURCEDIR=src/$(MAIN)
 CONTAINER=docker/build.sh
 DOCKER_TAG=z0rr0/$(NAME)
 CONFIG=config.example.json
+SCHEMA=schema.sql
 WEBDEBUG=http://localhost:18090
+TMPDB=db.sqlite
+STORAGE=storage
 
 PID=/tmp/.$(PROJECTNAME).pid
 STDERR=/tmp/.$(PROJECTNAME)-stderr.txt
@@ -32,8 +35,14 @@ lint: install
 	go vet $(MAIN)/page
 	golint $(MAIN)/page
 
-test: lint
-	@-cp $(GOPATH)/$(SOURCEDIR)/$(CONFIG) /tmp/
+prepare:
+	@-cp -f $(GOPATH)/$(SOURCEDIR)/$(CONFIG) /tmp/
+	@-rm -f $(TMPDB)
+	@-mkdir -p $(STORAGE)
+	@-rm -f $(STORAGE)/*
+	@-cat $(GOPATH)/$(SOURCEDIR)/$(SCHEMA) | sqlite3 $(TMPDB)
+
+test: lint prepare
 	go test -race -v -cover -coverprofile=conf_coverage.out -trace conf_trace.out $(MAIN)/conf
 	go test -race -v -cover -coverprofile=db_coverage.out -trace db_trace.out $(MAIN)/db
 	go test -race -v -cover -coverprofile=page_coverage.out -trace page_trace.out $(MAIN)/page
@@ -73,4 +82,5 @@ linux:
 
 clean: stop
 	rm -rf $(BIN)/*
+	rm -f $(TMPDB)
 	find $(GOPATH)/$(SOURCEDIR)/ -type f -name "*.out" -print0 -delete
