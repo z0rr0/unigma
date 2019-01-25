@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS `storage` (
   `id` INTEGER PRIMARY KEY AUTOINCREMENT,
   `name` TEXT,
   `path` TEXT,
-  `counter` INTEGER DEFAULT 1,
+  `counter` INTEGER NOT NULL DEFAULT 1,
   `hash` VARCHAR(64) NOT NULL,
   `salt` VARCHAR(256) NOT NULL,
   `created` DATETIME NOT NULL,

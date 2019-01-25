@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"mime"
 	"net/http"
@@ -21,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3" // SQLite3 driver package
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/crypto/sha3"
 )
@@ -432,32 +430,4 @@ func GCMonitor(ch <-chan *Item, closed chan struct{}, db *sql.DB, li, le *log.Lo
 			return
 		}
 	}
-}
-
-// CreateDB initializes new db by its path.
-func CreateDB(path, queryFile string) error {
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = db.Close()
-	}()
-	data, err := ioutil.ReadFile(queryFile)
-	if err != nil {
-		return err
-	}
-	fmt.Println(string(data))
-
-	stmt, err := db.Prepare(string(data))
-	if err != nil {
-		return err
-	}
-	stmt.
-	_, err = stmt.Exec()
-	if err != nil {
-		return err
-	}
-	return stmt.Close()
-
 }
