@@ -28,7 +28,7 @@ const (
 	// saltSize is random salt, also used for storage file name
 	saltSize = 128
 	// pbkdf2Iter is number of pbkdf2 iterations
-	pbkdf2Iter = 4096
+	pbkdf2Iter = 16384
 	// key length for AES-256
 	aesKeyLength = 32
 	// hashLength is length of file hash.
@@ -67,7 +67,7 @@ func (item *Item) FullPath() string {
 }
 
 // Key calculates and returns secret key and its SHA512 hash.
-func (item *Item) Key(secret string, salt []byte) ([]byte, []byte) {
+func Key(secret string, salt []byte) ([]byte, []byte) {
 	key := pbkdf2.Key([]byte(secret), salt, pbkdf2Iter, aesKeyLength, sha3.New512)
 	b := make([]byte, hashLength)
 	sha3.ShakeSum256(b, append(key, salt...))
@@ -84,7 +84,7 @@ func (item *Item) IsValidSecret(secret string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, keyHash := item.Key(secret, salt)
+	key, keyHash := Key(secret, salt)
 	if !hmac.Equal(hash, keyHash) {
 		return nil, errors.New("failed password")
 	}
@@ -98,7 +98,7 @@ func (item *Item) Encrypt(inFile io.Reader, secret string, l *log.Logger) error 
 	if err != nil {
 		return err
 	}
-	key, keyHash := item.Key(secret, salt)
+	key, keyHash := Key(secret, salt)
 	item.Hash = hex.EncodeToString(keyHash)
 	// check file exists
 	fullPath := item.FullPath()
