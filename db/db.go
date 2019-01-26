@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -35,9 +36,14 @@ const (
 	hashLength = 32
 )
 
+var (
+	// nameRegexp is regular expression to check encrypted name template.
+	nameRegexp = regexp.MustCompile(fmt.Sprintf("^[0-9a-f]{%d}$", hashLength*2))
+)
+
 // Item is base data struct for incoming data.
 type Item struct {
-	ID      int
+	ID      int64
 	Name    string
 	Path    string
 	Salt    string
@@ -238,10 +244,15 @@ func (item *Item) Save(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	_, err = stmt.Exec(item.Name, item.Path, item.Hash, item.Salt, item.Counter, item.Created, item.Created, item.Expired)
+	r, err := stmt.Exec(item.Name, item.Path, item.Hash, item.Salt, item.Counter, item.Created, item.Created, item.Expired)
 	if err != nil {
 		return err
 	}
+	id, err := r.LastInsertId()
+	if err != nil {
+		return err
+	}
+	item.ID = id
 	return stmt.Close()
 }
 
@@ -299,6 +310,11 @@ func (item *Item) Delete(db *sql.DB, le *log.Logger) error {
 	}
 	err = os.Remove(item.FullPath())
 	return err
+}
+
+// IsNameHash checks name can be an encrypted file name.
+func IsNameHash(name string) bool {
+	return nameRegexp.MatchString(name)
 }
 
 // Key calculates and returns secret key and its SHA512 hash.
@@ -381,7 +397,7 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
 			return 0, err
 		}
 		paths = append(paths, item.FullPath())
-		ids = append(ids, strconv.Itoa(item.ID))
+		ids = append(ids, strconv.FormatInt(item.ID, 10))
 	}
 	err = rows.Close()
 	if err != nil {

@@ -10,8 +10,9 @@ DOCKER_TAG=z0rr0/$(NAME)
 CONFIG=config.example.json
 SCHEMA=schema.sql
 WEBDEBUG=http://localhost:18090
-TMPDB=db.sqlite
-STORAGE=storage
+TMPDB=unigma_db.sqlite
+TMPSTORAGE=unigma_storage
+TMPCONF=unigma.json
 
 PID=/tmp/.$(PROJECTNAME).pid
 STDERR=/tmp/.$(PROJECTNAME)-stderr.txt
@@ -36,11 +37,13 @@ lint: install
 	golint $(MAIN)/page
 
 prepare:
-	@-rm -f $(TMPDB)
-	@-mkdir -p $(STORAGE)
-	@-rm -f $(STORAGE)/*
-	@-cat $(GOPATH)/$(SOURCEDIR)/$(SCHEMA) | sqlite3 $(TMPDB)
-	@-cp $(TMPDB) /tmp/$(TMPDB)
+	@-cp -r config.example.json /tmp/$(TMPCONF)
+	@-sed -i 's/"db.sqlite"/"\/tmp\/$(TMPDB)"/g' /tmp/$(TMPCONF)
+	@-sed -i 's/"storage",/"\/tmp\/$(TMPSTORAGE)",/g' /tmp/$(TMPCONF)
+	@-rm -f /tmp/$(TMPDB)
+	@-mkdir -p /tmp/$(TMPSTORAGE)
+	@-rm -f /tmp/$(TMPSTORAGE)/*
+	@-cat $(GOPATH)/$(SOURCEDIR)/$(SCHEMA) | sqlite3 /tmp/$(TMPDB)
 
 test: lint prepare
 #	go test -race -v -cover -coverprofile=conf_coverage.out -trace conf_trace.out $(MAIN)/conf

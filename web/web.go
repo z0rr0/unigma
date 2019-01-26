@@ -190,6 +190,9 @@ func readFile(w io.Writer, r *http.Request, item *db.Item, cfg *conf.Cfg) (int, 
 // Download returns a decrypted file.
 func Download(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
 	hash := strings.Trim(r.RequestURI, "/ ")
+	if !db.IsNameHash(hash) {
+		return Error(w, cfg, http.StatusNotFound, "", ""), nil
+	}
 	item, err := db.Read(cfg.Db, hash)
 	if err != nil {
 		return Error(w, cfg, http.StatusInternalServerError, "", ""), err
