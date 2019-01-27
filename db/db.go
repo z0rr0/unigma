@@ -313,8 +313,7 @@ func (item *Item) Delete(db *sql.DB, le *log.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed item delete by id: %v", err)
 	}
-	err = os.Remove(item.FullPath())
-	return err
+	return os.Remove(item.FullPath())
 }
 
 // IsNameHash checks name can be an encrypted file name.
@@ -382,11 +381,11 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
 		}
 	}()
 	stmt, err := tx.Prepare("SELECT `id`, `path`, `hash` FROM `storage` WHERE `expired`<?;")
-	if err != nil {
-		if err == sql.ErrNoRows {
-			err = nil // to do tx commit
-			return 0, err
-		}
+	if (err != nil) && (err != sql.ErrNoRows) {
+		return 0, err
+	}
+	if err == sql.ErrNoRows {
+		err = nil // to do tx commit
 		return 0, err
 	}
 	defer func() {

@@ -48,7 +48,7 @@ prepare:
 test: lint prepare
 #	go test -race -v -cover -coverprofile=conf_coverage.out -trace conf_trace.out $(MAIN)/conf
 	go test -race -v -cover -coverprofile=db_coverage.out -trace db_trace.out $(MAIN)/db
-	go test -race -v -cover -coverprofile=page_coverage.out -trace page_trace.out $(MAIN)/page
+#	go test -race -v -cover -coverprofile=page_coverage.out -trace page_trace.out $(MAIN)/page
 #	go test -race -v -cover -coverprofile=web_coverage.out -trace web_trace.out $(MAIN)/web
 	# go tool cover -html=coverage.out
 	# go tool trace ratest.test trace.out
@@ -84,6 +84,6 @@ linux:
 	env GOOS=linux GOARCH=amd64 go install -ldflags "$(VERSION)" $(MAIN)
 
 clean: stop
-	rm -rf $(BIN)/*
-	rm -f $(TMPDB)
+	rm -f /tmp/$(TMPDB) /tmp/$(TMPCONF)
+	find $(BIN)/* -type f -name unigma -print0 -delete
 	find $(GOPATH)/$(SOURCEDIR)/ -type f -name "*.out" -print0 -delete
