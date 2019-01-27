@@ -14,19 +14,24 @@ Process:
 
 ## Build
 
-
 Dependencies:
 
 ```
 github.com/mattn/go-sqlite3
 golang.org/x/crypto/pbkdf2
-golang.org/x/crypto/sha3"
+golang.org/x/crypto/sha3
 ```
 
 Check and build
 
 ```bash
 make install
+```
+
+Prepare empty database `db.sqlite`:
+
+```bash
+cat schema.sql | sqlite3 db.sqlite
 ```
 
 For docker container

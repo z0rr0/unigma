@@ -1,0 +1,11 @@
+version: '3.0'
+
+services:
+  unigma:
+    image: z0rr0/unigma:latest
+    volumes:
+      - ./conf/:/data/conf
+      - ./data/:/data/unigma
+    ports:
+      - "18090:18090"
+    restart: always
