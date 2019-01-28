@@ -10,9 +10,6 @@
 package web
 
 import (
-	"crypto/hmac"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -23,17 +20,6 @@ import (
 
 	"github.com/z0rr0/unigma/conf"
 	"github.com/z0rr0/unigma/db"
-	"golang.org/x/crypto/sha3"
-)
-
-const (
-	csrfSaltSize   = 64
-	csrfLength     = 64
-	csrfTimeFormat = "20060102T150405.000"
-)
-
-var (
-	timeBytesLength = len([]byte(csrfTimeFormat))
 )
 
 // IndexData is a struct for index page init data.
@@ -41,70 +27,6 @@ type IndexData struct {
 	Err     string
 	Msg     string
 	MaxSize int
-}
-
-// csrfHash calculates sha3.hash(salt+time+secret))
-func csrfHash(salt, secret, time []byte) []byte {
-	key := make([]byte, len(salt)+len(secret)+len(time))
-	i := 0
-	for _, v := range salt {
-		key[i] = v
-		i++
-	}
-	for _, v := range time {
-		key[i] = v
-		i++
-	}
-	for _, v := range secret {
-		key[i] = v
-		i++
-	}
-	b := make([]byte, csrfLength)
-	sha3.ShakeSum256(b, key)
-	return b
-}
-
-// GenCSRFToken returns new CSRF token.
-func GenCSRFToken(secret string, period time.Duration) (string, error) {
-	// base64(salt+time+hash)
-	salt := make([]byte, csrfSaltSize)
-	_, err := rand.Read(salt)
-	if err != nil {
-		return "", err
-	}
-	timeBytes := []byte(time.Now().UTC().Add(period).Format(csrfTimeFormat))
-	h := csrfHash(salt, []byte(secret), timeBytes)
-	token := append(salt, timeBytes...)
-	return base64.StdEncoding.EncodeToString(append(token, h...)), nil
-}
-
-// CheckCSRF checks CSRF token is still valid for current time.
-func CheckCSRF(token, secret string) error {
-	t, err := base64.StdEncoding.DecodeString(token)
-	if err != nil {
-		return err
-	}
-	// t=salt+time+hash
-	l := len(t)
-	if l != (csrfSaltSize + timeBytesLength + csrfLength) {
-		return errors.New("failed length")
-	}
-	h := t[l-csrfLength:]
-	salt := t[:csrfSaltSize]
-	timeBytes := t[csrfSaltSize : l-csrfLength]
-
-	b := csrfHash(salt, []byte(secret), timeBytes)
-	if !hmac.Equal(h, b) {
-		return errors.New("failed hash")
-	}
-	genTime, err := time.Parse(csrfTimeFormat, string(timeBytes))
-	if err != nil {
-		return err
-	}
-	if time.Now().UTC().After(genTime) {
-		return errors.New("expired")
-	}
-	return nil
 }
 
 // validateRange converts value to integer and checks that it is in a range [1; max].
