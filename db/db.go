@@ -409,16 +409,17 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	err = stmt.Close()
-	if err != nil {
-		return 0, err
-	}
 	// delete items from db
-	stmt, err = tx.Prepare("DELETE FROM `storage` WHERE `id` IN (?);")
+	stmtDel, err := tx.Prepare("DELETE FROM `storage` WHERE `id` IN (?);")
 	if err != nil {
 		return 0, err
 	}
-	_, err = stmt.Exec(strings.Join(ids, ","))
+	defer func() {
+		if err := stmtDel.Close(); err != nil {
+			le.Printf("failed close stmt: %v\n", err)
+		}
+	}()
+	_, err = stmtDel.Exec(strings.Join(ids, ","))
 	if err != nil {
 		return 0, err
 	}

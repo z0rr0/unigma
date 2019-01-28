@@ -40,6 +40,7 @@ type Cfg struct {
 	Timeout    int64    `json:"timeout"`
 	Secure     bool     `json:"secure"`
 	Salt       string   `json:"salt"`
+	CSRFSalt   string   `json:"csrf_salt"`
 	GCPeriod   int64    `json:"gc_period"`
 	Settings   settings `json:"settings"`
 	StorageDir string
