@@ -262,19 +262,20 @@ func (item *Item) Save(db *sql.DB) error {
 }
 
 // Decrement updates items' counter.
-func (item *Item) Decrement(db *sql.DB) (bool, error) {
+func (item *Item) Decrement(db *sql.DB, le *log.Logger) (bool, error) {
 	stmt, err := db.Prepare("UPDATE `storage` SET `counter`=`counter`-1, `updated`=? WHERE `counter`>0 AND `id`=?;")
 	if err != nil {
 		return false, err
 	}
+	defer func() {
+		if err := stmt.Close(); err != nil {
+			le.Printf("failed close stmt: %v\n", err)
+		}
+	}()
 	_, err = stmt.Exec(time.Now().UTC(), item.ID)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
-	if err != nil {
-		return false, err
-	}
-	err = stmt.Close()
 	if err != nil {
 		return false, err
 	}
@@ -330,11 +331,16 @@ func Key(secret string, salt []byte) ([]byte, []byte) {
 }
 
 // Read reads an item by its hash from database.
-func Read(db *sql.DB, hash string) (*Item, error) {
+func Read(db *sql.DB, hash string, le *log.Logger) (*Item, error) {
 	stmt, err := db.Prepare("SELECT `id`, `name`, `path`, `hash`, `salt`, `counter`, `created`, `expired` FROM `storage` WHERE `counter`>0 AND `hash`=?;")
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err := stmt.Close(); err != nil {
+			le.Printf("failed close stmt: %v\n", err)
+		}
+	}()
 	item := &Item{}
 	err = stmt.QueryRow(hash).Scan(
 		&item.ID,
@@ -349,10 +355,6 @@ func Read(db *sql.DB, hash string) (*Item, error) {
 	if err == sql.ErrNoRows {
 		return item, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	err = stmt.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -404,6 +406,10 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
 		ids = append(ids, strconv.FormatInt(item.ID, 10))
 	}
 	err = rows.Close()
+	if err != nil {
+		return 0, err
+	}
+	err = stmt.Close()
 	if err != nil {
 		return 0, err
 	}

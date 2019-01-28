@@ -170,7 +170,7 @@ func readFile(w io.Writer, r *http.Request, item *db.Item, cfg *conf.Cfg) (int, 
 		return Error(w, cfg, http.StatusBadRequest, err.Error(), "read"), err
 	}
 	// file exists and secret is valid, so decrement counter
-	ok, err := item.Decrement(cfg.Db)
+	ok, err := item.Decrement(cfg.Db, cfg.ErrLogger)
 	if err != nil {
 		return Error(w, cfg, http.StatusInternalServerError, "", "error"), err
 	}
@@ -193,7 +193,7 @@ func Download(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
 	if !db.IsNameHash(hash) {
 		return Error(w, cfg, http.StatusNotFound, "", ""), nil
 	}
-	item, err := db.Read(cfg.Db, hash)
+	item, err := db.Read(cfg.Db, hash, cfg.ErrLogger)
 	if err != nil {
 		return Error(w, cfg, http.StatusInternalServerError, "", ""), err
 	}

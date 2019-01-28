@@ -109,7 +109,7 @@ func TestRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := Read(db, hash)
+	item, err := Read(db, hash, loggerInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestItem_Decrement(t *testing.T) {
 	if item.Counter != 1 {
 		t.Error("failed item counter")
 	}
-	ok, err := item.Decrement(db)
+	ok, err := item.Decrement(db, loggerInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
