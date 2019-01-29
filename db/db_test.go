@@ -3,9 +3,11 @@ package db
 import (
 	"bytes"
 	"database/sql"
+	"encoding/hex"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -276,6 +278,129 @@ func TestItem_Decrement(t *testing.T) {
 	if item.Counter != 0 {
 		t.Error("failed item counter")
 	}
+	err = item.Delete(db, loggerInfo)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestItem_ContentType(t *testing.T) {
+	values := map[string]string{
+		"":            "application/octet-stream",
+		"abc":         "application/octet-stream",
+		"name.txt":    "text/plain; charset=utf-8",
+		"name.pdf":    "application/pdf",
+		"name.html":   "text/html; charset=utf-8",
+		"name.zip":    "application/zip",
+		"name.tar.gz": "application/gzip",
+	}
+	item := &Item{}
+	for name, value := range values {
+		item.Name = name
+		if ct := item.ContentType(); ct != value {
+			t.Errorf("invalid value: %v != %v", ct, value)
+		}
+	}
+}
+
+func TestItem_IsValidSecret(t *testing.T) {
+	secret := "secret"
+	item := &Item{
+		Name:    "test.txt",
+		Counter: 1,
+		Path:    testStorage,
+		Created: time.Now().UTC(),
+	}
+	reader := strings.NewReader("test")
+	err := item.Encrypt(reader, secret, loggerInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = item.IsValidSecret("bad")
+	if err == nil {
+		t.Error("unexpected result")
+	}
+	_, err = item.IsValidSecret(secret)
+	if err != nil {
+		t.Error(err)
+	}
+	db, err := sql.Open("sqlite3", testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	err = item.Delete(db, loggerInfo)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestItem_Encrypt(t *testing.T) {
+	var writer bytes.Buffer
+	content := []byte("test")
+	reader := strings.NewReader(string(content))
+	secret := "secret"
+	initName := "test.txt"
+	now := time.Now().UTC()
+
+	item := &Item{
+		Name:    initName,
+		Counter: 1,
+		Path:    testStorage,
+		Created: now,
+		Expired: now,
+	}
+	err := item.Encrypt(reader, secret, loggerInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Name == initName {
+		t.Errorf("name is not encrypted: %v", item.Name)
+	}
+	f, err := os.Open(item.FullPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := make([]byte, len(content))
+	_, err = f.Read(b)
+	if err != nil {
+		t.Error(err)
+	}
+	err = f.Close()
+	if err != nil {
+		t.Error(err)
+	}
+	if bytes.Equal(content, b) {
+		t.Error("content is not encrypted")
+	}
+	salt, err := hex.DecodeString(item.Salt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := Key(secret, salt)
+	err = item.Decrypt(&writer, key, loggerInfo)
+	if err != nil {
+		t.Error(err)
+	}
+	if item.Name != initName {
+		t.Errorf("name is not decrypted: %v", item.Name)
+	}
+	if s := writer.String(); s != string(content) {
+		t.Errorf("content is not decrypted: %v", s)
+	}
+	db, err := sql.Open("sqlite3", testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	err = item.Delete(db, loggerInfo)
 	if err != nil {
 		t.Error(err)
