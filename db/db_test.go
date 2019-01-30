@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"log"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -401,6 +402,37 @@ func TestItem_Encrypt(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+	err = item.Delete(db, loggerInfo)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestItem_GetURL(t *testing.T) {
+	db, err := sql.Open("sqlite3", testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	item, err := createItem(db, "abc", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Host = "unigma.com"
+
+	uri := item.GetURL(r, false)
+	if u := uri.String(); u != "http://unigma.com/abc" {
+		t.Error(u)
+	}
+	uri = item.GetURL(r, true)
+	if u := uri.String(); u != "https://unigma.com/abc" {
+		t.Error(u)
+	}
 	err = item.Delete(db, loggerInfo)
 	if err != nil {
 		t.Error(err)
