@@ -7,8 +7,7 @@ import (
 )
 
 const (
-	testDB         = "/tmp/unigma_db.sqlite"
-	testConfigName = "/tmp/config.example.json"
+	testConfig = "/tmp/unigma.json"
 )
 
 var (
@@ -16,23 +15,22 @@ var (
 )
 
 func TestNew(t *testing.T) {
-	//err := db.CreateDB("/tmp/db.sqlite", "/tmp/schema.sql")
-	//if err != nil {
-	//	t.Error(err)
-	//}
-
-	//if _, err := New("/bad_file_path.json", loggerInfo); err == nil {
-	//	t.Error("unexpected behavior")
-	//}
-	//cfg, err := New(testConfigName, loggerInfo)
-	//if err != nil {
-	//	t.Fatal(err)
-	//}
-	//if cfg.Addr() == "" {
-	//	t.Error("empty address")
-	//}
-	//err = cfg.Close()
-	//if err != nil {
-	//	t.Errorf("close error: %v", err)
-	//}
+	if _, err := New("/bad_file_path.json", loggerInfo); err == nil {
+		t.Error("unexpected behavior")
+	}
+	cfg, err := New(testConfig, loggerInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Addr() == "" {
+		t.Error("empty address")
+	}
+	cfg.Settings.Size = 4
+	if m := cfg.MaxFileSize(); m != (1048576 * 4) {
+		t.Error(m)
+	}
+	err = cfg.Close()
+	if err != nil {
+		t.Errorf("close error: %v", err)
+	}
 }
