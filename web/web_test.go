@@ -9,13 +9,18 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 
+	_ "github.com/mattn/go-sqlite3" // SQLite3 driver package
 	"github.com/z0rr0/unigma/conf"
+	"github.com/z0rr0/unigma/db"
 )
 
 const (
-	testConfig = "/tmp/unigma.json"
+	testConfig  = "/tmp/unigma.json"
+	testStorage = "/tmp/unigma_storage"
 )
 
 var (
@@ -34,6 +39,46 @@ type formData struct {
 type uploadTestCase struct {
 	F    *formData
 	Code int
+}
+
+type downloadTestCase struct {
+	Hash     string
+	Password string
+	Code     int
+}
+
+//func createFile(name string) error {
+//	outFile, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+//	if err != nil {
+//		return err
+//	}
+//	_, err = outFile.WriteString("test")
+//	if err != nil {
+//		return err
+//	}
+//	return outFile.Close()
+//}
+
+func createItem(cfg *conf.Cfg, secret, content string, expired time.Time) (*db.Item, error) {
+	now := time.Now().UTC()
+	item := &db.Item{
+		Name:    "test.txt",
+		Path:    testStorage,
+		Salt:    "abc",
+		Counter: 1,
+		Created: now,
+		Expired: expired,
+	}
+	f := strings.NewReader(content)
+	err := item.Encrypt(f, cfg.Secret(secret), loggerInfo)
+	if err != nil {
+		return nil, err
+	}
+	err = item.Save(cfg.Db)
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func createForm(f *formData) (io.Reader, string, error) {
@@ -87,6 +132,11 @@ func TestIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		if err := cfg.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	w := httptest.NewRecorder()
 	code, err := Index(w, nil, cfg)
 	if err != nil {
@@ -102,6 +152,11 @@ func TestUpload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		if err := cfg.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	values := []*uploadTestCase{
 		{
 			F:    &formData{File: "content", FileName: "test.txt", TTL: "10", Times: "1", Password: "test"},
@@ -186,5 +241,65 @@ func TestUpload(t *testing.T) {
 }
 
 func TestDownload(t *testing.T) {
-	
+	cfg, err := conf.New(testConfig, loggerInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := cfg.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	now := time.Now().UTC()
+	secret := "secret"
+	content := "content"
+
+	item, err := createItem(cfg, secret, content, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	period := 500 * time.Millisecond
+	monitorClosed := make(chan struct{})
+	go db.GCMonitor(cfg.Ch, monitorClosed, cfg.Db, loggerInfo, loggerInfo, period)
+	defer func() {
+		close(monitorClosed)
+		time.Sleep(period)
+	}()
+
+	values := []*downloadTestCase{
+		{Hash: "abc", Password: secret, Code: http.StatusNotFound},
+		{Hash: "", Password: secret, Code: http.StatusNotFound},
+		{Hash: "ab117372d41c05ba9ee4d4ea2f9ebab8e838990e4ff3316bb8c38cfb3ec2afc2", Password: secret, Code: http.StatusNotFound},
+		{Hash: item.Hash, Password: "bad", Code: http.StatusBadRequest},
+		{Hash: item.Hash, Password: "", Code: http.StatusBadRequest},
+		{Hash: item.Hash, Password: secret, Code: http.StatusOK}, // delete
+	}
+	for i, tc := range values {
+		body := strings.NewReader("password=" + tc.Password)
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "/"+tc.Hash, body)
+		r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+		errExpected := tc.Code != http.StatusOK
+		code, err := Download(w, r, cfg)
+		if !errExpected && (err != nil) {
+			t.Error(err)
+		}
+		if code != tc.Code {
+			t.Errorf("[%v] failed code %v!=%v", i, code, tc.Code)
+		}
+		if errExpected {
+			continue
+		}
+		// only status 200
+		b := make([]byte, 1024)
+		resp := w.Result()
+		_, err = resp.Body.Read(b)
+		if err != nil {
+			t.Error(err)
+		}
+		if !strings.Contains(string(b), content) {
+			t.Errorf("missed content [%v]", i)
+		}
+	}
 }
