@@ -6,7 +6,6 @@
   "timeout": 30,
   "secure": false,
   "salt": "abc",
-  "csrf_salt": "abc",
   "gc_period": 15,
   "settings": {
     "ttl": 604800,

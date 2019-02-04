@@ -301,16 +301,12 @@ func (item *Item) Delete(db *sql.DB, le *log.Logger) error {
 			}
 		}
 	}()
-	stmt, err := tx.Prepare("DELETE FROM `storage` WHERE `id`=?;")
+	// delete an item
+	_, err = deleteByIDs(tx, le, item.ID)
 	if err != nil {
-		return fmt.Errorf("failed prepare item delete by id: %v", err)
+		return err
 	}
-	defer func() {
-		if err := stmt.Close(); err != nil {
-			le.Printf("failed close stmt: %v\n", err)
-		}
-	}()
-	_, err = stmt.Exec(item.ID)
+	// delete a file
 	if err != nil {
 		return fmt.Errorf("failed item delete by id: %v", err)
 	}
@@ -361,10 +357,32 @@ func Read(db *sql.DB, hash string, le *log.Logger) (*Item, error) {
 	return item, nil
 }
 
-func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
+// deleteByIDs removes items by their identifiers.
+func deleteByIDs(tx *sql.Tx, le *log.Logger, ids ...int64) (int64, error) {
+	stmtDel, err := tx.Prepare("DELETE FROM `storage` WHERE `id` IN (?);")
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err := stmtDel.Close(); err != nil {
+			le.Printf("failed close stmt: %v\n", err)
+		}
+	}()
+	strIDs := make([]string, len(ids))
+	for i, v := range ids {
+		strIDs[i] = strconv.FormatInt(v, 10)
+	}
+	result, err := stmtDel.Exec(strings.Join(strIDs, ","))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func deleteByDate(db *sql.DB, le *log.Logger) (int64, error) {
 	var (
 		paths []string
-		ids   []string
+		ids   []int64
 		err   error
 	)
 	tx, err := db.Begin()
@@ -403,33 +421,25 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int, error) {
 			return 0, err
 		}
 		paths = append(paths, item.FullPath())
-		ids = append(ids, strconv.FormatInt(item.ID, 10))
+		ids = append(ids, item.ID)
 	}
 	err = rows.Close()
 	if err != nil {
 		return 0, err
 	}
 	// delete items from db
-	stmtDel, err := tx.Prepare("DELETE FROM `storage` WHERE `id` IN (?);")
+	n, err := deleteByIDs(tx, le, ids...)
 	if err != nil {
 		return 0, err
 	}
-	defer func() {
-		if err := stmtDel.Close(); err != nil {
-			le.Printf("failed close stmt: %v\n", err)
-		}
-	}()
-	_, err = stmtDel.Exec(strings.Join(ids, ","))
-	if err != nil {
-		return 0, err
-	}
+	// delete files
 	for _, p := range paths {
 		err = os.RemoveAll(p)
 		if err != nil {
 			return 0, err
 		}
 	}
-	return len(paths), nil
+	return n, nil
 }
 
 // GCMonitor is garbage collection monitoring to delete expired by date or counter items.
