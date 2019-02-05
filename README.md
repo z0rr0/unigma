@@ -7,7 +7,7 @@ Secure file sharing service.
 Process:
 
 - upload a file (+settings: required password + TTL + number of sharing)
-- the file is encrypted using AES-256 with a key based on user's password, metadata is stored in local SQLite database and private info is also encrypted
+- the file content and name are encrypted using AES-256 with a key based on user's password, metadata is stored in local SQLite database
 - get unique link
 - share the link (recipient should know used password)
 
@@ -34,7 +34,7 @@ Prepare empty database `db.sqlite`:
 cat schema.sql | sqlite3 db.sqlite
 ```
 
-For docker container
+For docker container [z0rr0/unigma](https://cloud.docker.com/u/z0rr0/repository/docker/z0rr0/unigma)
 
 ```bash
 make docker
@@ -50,6 +50,14 @@ make start
 make restart
 
 make stop
+```
+
+### Tests
+
+Tests use temporary directory `/tmp/` and checked on Linux hosts.
+
+```bash
+make test
 ```
 
 ## License
