@@ -359,12 +359,12 @@ func Read(db *sql.DB, hash string, le *log.Logger) (*Item, error) {
 
 // deleteByIDs removes items by their identifiers.
 func deleteByIDs(tx *sql.Tx, le *log.Logger, ids ...int64) (int64, error) {
-	stmtDel, err := tx.Prepare("DELETE FROM `storage` WHERE `id` IN (?);")
+	stmt, err := tx.Prepare("DELETE FROM `storage` WHERE `id` IN (?);")
 	if err != nil {
 		return 0, err
 	}
 	defer func() {
-		if err := stmtDel.Close(); err != nil {
+		if err := stmt.Close(); err != nil {
 			le.Printf("failed close stmt: %v\n", err)
 		}
 	}()
@@ -372,7 +372,7 @@ func deleteByIDs(tx *sql.Tx, le *log.Logger, ids ...int64) (int64, error) {
 	for i, v := range ids {
 		strIDs[i] = strconv.FormatInt(v, 10)
 	}
-	result, err := stmtDel.Exec(strings.Join(strIDs, ","))
+	result, err := stmt.Exec(strings.Join(strIDs, ","))
 	if err != nil {
 		return 0, err
 	}
