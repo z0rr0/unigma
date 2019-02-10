@@ -10,6 +10,8 @@
 package web
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +22,15 @@ import (
 
 	"github.com/z0rr0/unigma/conf"
 	"github.com/z0rr0/unigma/db"
+)
+
+const (
+	// TTL is default TTL value. If it conflicts with custom configuration then minimum value will be used.
+	TTL = 86400
+	// Times is default times value
+	Times = 1
+	// PasswordLength is default password length in bytes for auto-generated ones.
+	PasswordLength = 8
 )
 
 // IndexData is a struct for index page init data.
@@ -72,6 +83,57 @@ func validateUpload(r *http.Request, cfg *conf.Cfg) (*db.Item, string, error) {
 		Created: now,
 		Expired: now.Add(time.Duration(ttl) * time.Second),
 	}
+	return item, password, nil
+}
+
+func validateUploadShort(r *http.Request, cfg *conf.Cfg) (*db.Item, string, error) {
+	var (
+		ttl, times int
+		password   string
+		err        error
+	)
+	// TTL
+	value := r.PostFormValue("ttl")
+	if value == "" {
+		ttl = TTL
+		if ttl > cfg.Settings.TTL {
+			ttl = cfg.Settings.TTL
+		}
+	} else {
+		ttl, err = validateRange(value, "ttl", cfg.Settings.TTL)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	// times
+	value = r.PostFormValue("times")
+	if value == "" {
+		times = Times
+	} else {
+		times, err = validateRange(value, "times", cfg.Settings.Times)
+		if err != nil {
+			return nil, "", err
+		}
+
+	}
+	// password
+	value = r.PostFormValue("password")
+	if value == "" {
+		r := make([]byte, PasswordLength)
+		_, err := rand.Read(r)
+		if err != nil {
+			return nil, "", err
+		}
+		password = hex.EncodeToString(r)
+
+	}
+	now := time.Now().UTC()
+	item := &db.Item{
+		Counter: times,
+		Path:    cfg.StorageDir,
+		Created: now,
+		Expired: now.Add(time.Duration(ttl) * time.Second),
+	}
 	return item, cfg.Secret(password), nil
 }
 
@@ -90,7 +152,7 @@ func validateDownload(item *db.Item, r *http.Request, cfg *conf.Cfg) ([]byte, er
 	return key, nil
 }
 
-// Error sets error page. It returns code value.
+// Error sets error page. It returns http status code.
 func Error(w io.Writer, cfg *conf.Cfg, code int, msg string, tplName string) int {
 	if tplName == "" {
 		tplName = "error"
@@ -114,6 +176,21 @@ func Error(w io.Writer, cfg *conf.Cfg, code int, msg string, tplName string) int
 	err := tpl.Execute(w, &IndexData{Err: title, Msg: msg})
 	if err != nil {
 		cfg.ErrLogger.Printf("error-template '%v' execute failed: %v\n", tplName, err)
+		return http.StatusInternalServerError
+	}
+	return code
+}
+
+// ErrorUploadShort sets error response. It returns http status code.
+func ErrorUploadShort(w io.Writer, cfg *conf.Cfg, code int, msg string) int {
+	httpWriter, ok := w.(http.ResponseWriter)
+	if ok {
+		httpWriter.WriteHeader(code)
+	}
+	cfg.ErrLogger.Println(msg)
+	_, err := fmt.Fprintf(w, "ERROR: %v\n", msg)
+	if err != nil {
+		cfg.ErrLogger.Printf("error preparation: %v\n", err)
 		return http.StatusInternalServerError
 	}
 	return code
@@ -160,6 +237,46 @@ func Upload(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
 	err = tpl.Execute(w, map[string]string{"URL": item.GetURL(r, cfg.Secure).String()})
 	if err != nil {
 		return Error(w, cfg, http.StatusInternalServerError, "", ""), err
+	}
+	return http.StatusOK, nil
+}
+
+// UploadShort gets an incoming upload request, encrypts and saves file to the storage.
+// It differs from Upload method, only file field is required, a response content-type is "plain/text".
+func UploadShort(w io.Writer, r *http.Request, cfg *conf.Cfg) (int, error) {
+	item, password, err := validateUploadShort(r, cfg)
+	if err != nil {
+		return ErrorUploadShort(w, cfg, http.StatusBadRequest, err.Error()), err
+	}
+	f, h, err := r.FormFile("file")
+	if err != nil {
+		return ErrorUploadShort(w, cfg, http.StatusBadRequest, "field file is required"), err
+	}
+	defer func() {
+		if err := r.Body.Close(); err != nil {
+			cfg.ErrLogger.Printf("close body: %v", err)
+		}
+		if err := f.Close(); err != nil {
+			cfg.ErrLogger.Printf("close incoming file: %v", err)
+		}
+	}()
+	item.Name = h.Filename
+	err = item.Encrypt(f, cfg.Secret(password), cfg.ErrLogger)
+	if err != nil {
+		return ErrorUploadShort(w, cfg, http.StatusInternalServerError, "server error"), err
+	}
+	err = item.Save(cfg.Db)
+	if err != nil {
+		return ErrorUploadShort(w, cfg, http.StatusInternalServerError, "server error"), err
+	}
+	uri := item.GetURL(r, cfg.Secure).String()
+
+	_, err = fmt.Fprintf(w,
+		"URL: %v\nExpired: %v\nPassword: %v\n",
+		uri, item.Expired.Format(time.RFC850), password,
+	)
+	if err != nil {
+		return ErrorUploadShort(w, cfg, http.StatusInternalServerError, "server error"), err
 	}
 	return http.StatusOK, nil
 }

@@ -24,8 +24,9 @@ const (
 )
 
 var (
-	loggerInfo = log.New(os.Stdout, "[TEST]", log.Ltime|log.Lshortfile)
-	rgCheck    = regexp.MustCompile(`href="http(s)?://.+/(?P<key>[0-9a-z]{64})"`)
+	loggerInfo   = log.New(os.Stdout, "[TEST]", log.Ltime|log.Lshortfile)
+	rgCheck      = regexp.MustCompile(`href="http(s)?://.+/(?P<key>[0-9a-z]{64})"`)
+	rgShortCheck = regexp.MustCompile(`URL: http(s)?://.+/(?P<key>[0-9a-z]{64})`)
 )
 
 type formData struct {
@@ -46,18 +47,6 @@ type downloadTestCase struct {
 	Password string
 	Code     int
 }
-
-//func createFile(name string) error {
-//	outFile, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-//	if err != nil {
-//		return err
-//	}
-//	_, err = outFile.WriteString("test")
-//	if err != nil {
-//		return err
-//	}
-//	return outFile.Close()
-//}
 
 func createItem(cfg *conf.Cfg, secret, content string, expired time.Time) (*db.Item, error) {
 	now := time.Now().UTC()
@@ -300,6 +289,99 @@ func TestDownload(t *testing.T) {
 		}
 		if !strings.Contains(string(b), content) {
 			t.Errorf("missed content [%v]", i)
+		}
+	}
+}
+
+func TestUploadShort(t *testing.T) {
+	cfg, err := conf.New(testConfig, loggerInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := cfg.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	values := []*uploadTestCase{
+		{
+			F:    &formData{File: "content", FileName: "test.txt", TTL: "10", Times: "1", Password: "test"},
+			Code: http.StatusOK,
+		},
+		{
+			F:    &formData{File: "content", FileName: "test.txt"},
+			Code: http.StatusOK,
+		},
+		{
+			F:    &formData{File: "content", TTL: "10", Password: "test"},
+			Code: http.StatusBadRequest,
+		},
+		{
+			F:    &formData{File: "content", FileName: "test.txt", TTL: "10", Times: "1", Password: ""},
+			Code: http.StatusOK,
+		},
+		{
+			F:    &formData{File: "content", FileName: "test.txt", TTL: "604800", Times: "1000", Password: "test"},
+			Code: http.StatusOK,
+		},
+		{
+			F:    &formData{File: "content", FileName: "test.txt", TTL: "604801", Times: "1000", Password: "test"},
+			Code: http.StatusBadRequest,
+		},
+		{
+			F:    &formData{File: "content", FileName: "test.txt", TTL: "604800", Times: "1001", Password: "test"},
+			Code: http.StatusBadRequest,
+		},
+		{
+			F:    &formData{File: "content", FileName: "test.txt", TTL: "a", Times: "1", Password: ""},
+			Code: http.StatusBadRequest,
+		},
+		{
+			F:    &formData{File: "content", FileName: "test.txt", TTL: "10", Times: "a", Password: ""},
+			Code: http.StatusBadRequest,
+		},
+	}
+	for i, tc := range values {
+		body, contentType, err := createForm(tc.F)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wr := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "/u", body)
+		r.Header.Set("Content-Type", contentType)
+
+		errExpected := tc.Code != http.StatusOK
+		code, err := UploadShort(wr, r, cfg)
+		if !errExpected && (err != nil) {
+			t.Error(err)
+		}
+		if code != tc.Code {
+			t.Errorf("[%v] failed code %v!=%v", i, code, tc.Code)
+		}
+		if errExpected {
+			continue
+		}
+		// only status 200
+		b := make([]byte, 1024)
+		resp := wr.Result()
+		_, err = resp.Body.Read(b)
+		if err != nil {
+			t.Error(err)
+		}
+		finds := rgShortCheck.FindStringSubmatch(string(b))
+		if l := len(finds); l != 3 {
+			t.Fatalf("failed result check lenght: %v", l)
+		}
+		key := finds[2]
+
+		wr = httptest.NewRecorder()
+		r = httptest.NewRequest("GET", "/"+key, nil)
+		code, err = Download(wr, r, cfg)
+		if err != nil {
+			t.Error(err)
+		}
+		if code != http.StatusOK {
+			t.Errorf("failed code: %v", code)
 		}
 	}
 }

@@ -101,6 +101,8 @@ func main() {
 			code, err = web.Index(w, r, cfg)
 		case "/upload":
 			code, err = web.Upload(w, r, cfg)
+		case "/u":
+			code, err = web.UploadShort(w, r, cfg)
 		default:
 			code, err = web.Download(w, r, cfg)
 		}
