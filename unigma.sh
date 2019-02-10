@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
 UNIGMA="https://unigma.lus.su/u"
+# for debug mode
+#UNIGMA="http://127.0.0.1:18090/u"
+
 FILE=""
 TTL=""
 TIMES=""

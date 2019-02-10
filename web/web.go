@@ -83,7 +83,7 @@ func validateUpload(r *http.Request, cfg *conf.Cfg) (*db.Item, string, error) {
 		Created: now,
 		Expired: now.Add(time.Duration(ttl) * time.Second),
 	}
-	return item, password, nil
+	return item, cfg.Secret(password), nil
 }
 
 func validateUploadShort(r *http.Request, cfg *conf.Cfg) (*db.Item, string, error) {
@@ -114,18 +114,16 @@ func validateUploadShort(r *http.Request, cfg *conf.Cfg) (*db.Item, string, erro
 		if err != nil {
 			return nil, "", err
 		}
-
 	}
 	// password
-	value = r.PostFormValue("password")
-	if value == "" {
+	password = r.PostFormValue("password")
+	if password == "" {
 		r := make([]byte, PasswordLength)
 		_, err := rand.Read(r)
 		if err != nil {
 			return nil, "", err
 		}
 		password = hex.EncodeToString(r)
-
 	}
 	now := time.Now().UTC()
 	item := &db.Item{
@@ -134,7 +132,7 @@ func validateUploadShort(r *http.Request, cfg *conf.Cfg) (*db.Item, string, erro
 		Created: now,
 		Expired: now.Add(time.Duration(ttl) * time.Second),
 	}
-	return item, cfg.Secret(password), nil
+	return item, password, nil
 }
 
 func validateDownload(item *db.Item, r *http.Request, cfg *conf.Cfg) ([]byte, error) {
