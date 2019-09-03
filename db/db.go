@@ -414,6 +414,9 @@ func deleteByDate(db *sql.DB, le *log.Logger) (int64, error) {
 		}
 	}()
 	rows, err := stmt.Query(time.Now().UTC())
+	if err != nil {
+		return 0, err
+	}
 	item := &Item{} // use only one item to collect paths
 	for rows.Next() {
 		err = rows.Scan(&item.ID, &item.Path, &item.Hash)
