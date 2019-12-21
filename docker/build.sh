@@ -4,10 +4,12 @@ NAME="unigma"
 CONTAINER="gounigma"
 SOURCES="${GOPATH}/src"
 TARGET="${GOPATH}/bin/alpine"
-ATTRS="`bash version.sh`"
+ATTRS="$(bash version.sh)"
+U="$(id -u ${USER})"
+G="$(id -g ${USER})"
 
-rm -f ${TARGET}/bin/*
-mkdir -p ${TARGET}/bin ${TARGET}/pkg
+rm -f "${TARGET}"/bin/*
+mkdir -p "${TARGET}"/bin "${TARGET}"/pkg
 
 # build golang build container
 docker build -t ${CONTAINER} -f docker/golang/Dockerfile .
@@ -16,10 +18,10 @@ if [[ $? -gt 0 ]]; then
 	exit 1
 fi
 
-/usr/bin/docker run --rm --user `id -u ${USER}`:`id -g ${USER}` \
-    --volume ${SOURCES}:/usr/p/src:ro \
-    --volume ${TARGET}/pkg:/usr/p/pkg \
-    --volume ${TARGET}/bin:/usr/p/bin \
+/usr/bin/docker run --rm --user "${U}":"${G}" \
+    --volume "${SOURCES}":/usr/p/src:ro \
+    --volume "${TARGET}"/pkg:/usr/p/pkg \
+    --volume "${TARGET}"/bin:/usr/p/bin \
     --workdir /usr/p/src/github.com/z0rr0/${NAME} \
     --env GOPATH=/usr/p \
     --env GOCACHE=/tmp/.cache \
@@ -29,4 +31,4 @@ if [[ $? -gt 0 ]]; then
 	echo "ERROR: build container"
 	exit 1
 fi
-cp -v ${TARGET}/bin/${NAME}  ./
+cp -v "${TARGET}"/bin/${NAME}  ./
