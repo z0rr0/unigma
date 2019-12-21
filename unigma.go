@@ -40,7 +40,7 @@ var (
 		log.Ldate|log.Ltime|log.Lshortfile)
 )
 
-func getVersion(w http.ResponseWriter, cfg *conf.Cfg) error {
+func getVersion(w http.ResponseWriter) error {
 	_, err := fmt.Fprintf(w,
 		"%v\nVersion: %v\nRevision: %v\nBuild date: %v\nGo version: %v\n",
 		Name, Version, Revision, BuildDate, GoVersion,
@@ -96,7 +96,7 @@ func main() {
 		}()
 		switch r.URL.Path {
 		case "/version":
-			code, err = http.StatusOK, getVersion(w, cfg)
+			code, err = http.StatusOK, getVersion(w)
 		case "/":
 			code, err = web.Index(w, r, cfg)
 		case "/upload":

@@ -167,11 +167,11 @@ func New(filename string, l *log.Logger) (*Cfg, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite3", c.DbSource)
+	database, err := sql.Open("sqlite3", c.DbSource)
 	if err != nil {
 		return nil, err
 	}
-	c.Db = db
+	c.Db = database
 	c.ErrLogger = l
 	return c, nil
 }
