@@ -74,6 +74,9 @@ func readIDs(db *sql.DB, t *testing.T) (map[int64]bool, error) {
 		return ids, nil // no items
 	}
 	rows, err := stmt.Query()
+	if err != nil {
+		return nil, err
+	}
 	for rows.Next() {
 		err = rows.Scan(&id)
 		if err != nil {
