@@ -1,4 +1,4 @@
-// Copyright 2019 Alexander Zaytsev <me@axv.email>.
+// Copyright 2020 Alexander Zaytsev <me@axv.email>.
 // All rights reserved. Use of this source code is governed
 // by a MIT-style license that can be found in the LICENSE file.
 
@@ -56,6 +56,27 @@ type Item struct {
 	Counter int
 	Created time.Time
 	Expired time.Time
+}
+
+// InTransaction runs method f and does commit or rollback.
+func InTransaction(db *sql.DB, f func(tx *sql.Tx) error) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	err = f(tx)
+	if err != nil {
+		e := tx.Rollback()
+		if e != nil {
+			err = fmt.Errorf("transaction error=%v, rollback error=%v", err, e)
+		}
+		return err
+	}
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // ContentType returns string content-type for stored file.
@@ -245,70 +266,65 @@ func (item *Item) IsFileExists() bool {
 
 // Save saves the item to database.
 func (item *Item) Save(db *sql.DB) error {
-	stmt, err := db.Prepare("INSERT INTO `storage` (`name`, `path`, `hash`, `salt`, `counter`, `created`, `updated`, `expired`) values (?, ?, ?, ?, ?, ?, ?, ?);")
-	if err != nil {
-		return err
-	}
-	r, err := stmt.Exec(item.Name, item.Path, item.Hash, item.Salt, item.Counter, item.Created, item.Created, item.Expired)
-	if err != nil {
-		return err
-	}
-	id, err := r.LastInsertId()
-	if err != nil {
-		return err
-	}
-	item.ID = id
-	return stmt.Close()
+	return InTransaction(db, func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare("INSERT INTO `storage` (`name`, `path`, `hash`, `salt`, `counter`, `created`, `updated`, `expired`) VALUES (?, ?, ?, ?, ?, ?, ?, ?);")
+		if err != nil {
+			return err
+		}
+		r, err := stmt.Exec(item.Name, item.Path, item.Hash, item.Salt, item.Counter, item.Created, item.Created, item.Expired)
+		if err != nil {
+			return err
+		}
+		id, err := r.LastInsertId()
+		if err != nil {
+			return err
+		}
+		item.ID = id
+		return stmt.Close()
+	})
 }
 
-// Decrement updates items' counter.
+// Decrement updates items' counter. The first returned parameter is "updated" flags.
 func (item *Item) Decrement(db *sql.DB, le *log.Logger) (bool, error) {
-	stmt, err := db.Prepare("UPDATE `storage` SET `counter`=`counter`-1, `updated`=? WHERE `counter`>0 AND `id`=?;")
-	if err != nil {
-		return false, err
-	}
-	defer func() {
-		if err := stmt.Close(); err != nil {
-			le.Printf("failed close stmt: %v\n", err)
+	counter := item.Counter
+	err := InTransaction(db, func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare("UPDATE `storage` SET `counter`=`counter`-1, `updated`=? WHERE `counter`>0 AND `id`=?;")
+		if err != nil {
+			return err
 		}
-	}()
-	_, err = stmt.Exec(time.Now().UTC(), item.ID)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
+		defer func() {
+			if err := stmt.Close(); err != nil {
+				le.Printf("failed close stmt: %v\n", err)
+			}
+		}()
+		_, err = stmt.Exec(time.Now().UTC(), item.ID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil
+			}
+			return err
+		}
+		item.Counter--
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
-	item.Counter--
-	return true, nil
+	return counter != item.Counter, nil
 }
 
 // Delete removes items from database and related file from file system.
 func (item *Item) Delete(db *sql.DB, le *log.Logger) error {
-	var err error
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() {
+	e := InTransaction(db, func(tx *sql.Tx) error {
+		// delete an item
+		_, err := deleteByIDs(tx, le, item.ID)
 		if err != nil {
-			if e := tx.Rollback(); e != nil {
-				le.Printf("tx rollback error: %v\n", e)
-			}
-		} else {
-			if e := tx.Commit(); e != nil {
-				le.Printf("tx commit error: %v\n", e)
-			}
+			return err
 		}
-	}()
-	// delete an item
-	_, err = deleteByIDs(tx, le, item.ID)
-	if err != nil {
-		return err
-	}
-	// delete a file
-	if err != nil {
-		return fmt.Errorf("failed item delete by id: %v", err)
+		return nil
+	})
+	if e != nil {
+		return fmt.Errorf("failed item delete by id: %v", e)
 	}
 	return os.Remove(item.FullPath())
 }
@@ -380,67 +396,54 @@ func deleteByIDs(tx *sql.Tx, le *log.Logger, ids ...int64) (int64, error) {
 }
 
 func deleteByDate(db *sql.DB, le *log.Logger) (int64, error) {
-	var (
-		paths []string
-		ids   []int64
-		err   error
-	)
-	tx, err := db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer func() {
-		if err != nil {
-			if e := tx.Rollback(); e != nil {
-				le.Printf("tx rollback error: %v\n", e)
+	var n int64
+	err := InTransaction(db, func(tx *sql.Tx) error {
+		var (
+			paths []string
+			ids   []int64
+		)
+		stmt, e := tx.Prepare("SELECT `id`, `path`, `hash` FROM `storage` WHERE `expired`<?;")
+		if e != nil {
+			return e
+		}
+		defer func() {
+			if err := stmt.Close(); err != nil {
+				le.Printf("failed close stmt: %v\n", err)
 			}
-		} else {
-			if e := tx.Commit(); e != nil {
-				le.Printf("tx commit error: %v\n", e)
+		}()
+		rows, e := stmt.Query(time.Now().UTC())
+		if e != nil {
+			return e
+		}
+		item := &Item{} // use only one item to collect paths
+		for rows.Next() {
+			e = rows.Scan(&item.ID, &item.Path, &item.Hash)
+			if e != nil {
+				return e
+			}
+			paths = append(paths, item.FullPath())
+			ids = append(ids, item.ID)
+		}
+		e = rows.Close()
+		if e != nil {
+			return e
+		}
+		// delete items from db
+		n, e = deleteByIDs(tx, le, ids...)
+		if e != nil {
+			return e
+		}
+		// delete files
+		for _, p := range paths {
+			e = os.RemoveAll(p)
+			if e != nil {
+				return e
 			}
 		}
-	}()
-	stmt, err := tx.Prepare("SELECT `id`, `path`, `hash` FROM `storage` WHERE `expired`<?;")
-	if (err != nil) && (err != sql.ErrNoRows) {
-		return 0, err
-	}
-	if err == sql.ErrNoRows {
-		err = nil // to do tx commit
-		return 0, err
-	}
-	defer func() {
-		if err := stmt.Close(); err != nil {
-			le.Printf("failed close stmt: %v\n", err)
-		}
-	}()
-	rows, err := stmt.Query(time.Now().UTC())
+		return nil
+	})
 	if err != nil {
 		return 0, err
-	}
-	item := &Item{} // use only one item to collect paths
-	for rows.Next() {
-		err = rows.Scan(&item.ID, &item.Path, &item.Hash)
-		if err != nil {
-			return 0, err
-		}
-		paths = append(paths, item.FullPath())
-		ids = append(ids, item.ID)
-	}
-	err = rows.Close()
-	if err != nil {
-		return 0, err
-	}
-	// delete items from db
-	n, err := deleteByIDs(tx, le, ids...)
-	if err != nil {
-		return 0, err
-	}
-	// delete files
-	for _, p := range paths {
-		err = os.RemoveAll(p)
-		if err != nil {
-			return 0, err
-		}
 	}
 	return n, nil
 }

@@ -1,3 +1,6 @@
+// Copyright 2020 Alexander Zaytsev <me@axv.email>.
+// All rights reserved. Use of this source code is governed
+// by a MIT-style license that can be found in the LICENSE file.
 package main
 
 import (
@@ -18,7 +21,7 @@ import (
 
 const (
 	// Name is a program name.
-	Name = "Enigma"
+	Name = "Unigma"
 	// Config is default configuration file name.
 	Config = "config.json"
 )
